@@ -1,0 +1,35 @@
+name: CI
+
+on: [pull_request]
+
+jobs:
+
+  build:
+
+    name: Build
+    
+    runs-on: ubuntu-latest
+    
+    env:
+      REPO_NAME: ${{ github.event.repository.name }}
+      REPO_SHA: ${{ github.sha }}
+    
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@v2
+
+    - name: Secret Scan
+      uses: max/secret-scan@master
+
+    - name: Build an image from Dockerfile
+      run: |
+        docker build -t ${{ env.REPO_NAME }}:${{ env.REPO_SHA }} .
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: ${{ env.REPO_NAME }}:${{ env.REPO_SHA }}
+        exit-code: '0'
+        ignore-unfixed: false
+        severity: 'HIGH,CRITICAL'
+        vuln-type: 'os,library'
