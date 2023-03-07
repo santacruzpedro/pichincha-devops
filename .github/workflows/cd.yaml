@@ -1,0 +1,78 @@
+name: CD
+
+on:
+  push:
+    branches:
+      - main
+      - qa
+      - develop
+
+jobs:
+
+  release:
+
+    name: Update Lambda
+    
+    runs-on: ubuntu-latest
+    
+    env:
+      REPO_NAME: ${{ github.event.repository.name }}
+      IMAGE_TAG: ${{ github.sha }}
+      ECR_REPOSITORY: ${{ github.event.repository.name }}
+
+    steps:
+
+    - name: Checkout
+      id: checkout
+      uses: actions/checkout@v2
+
+    - name: Set env BRANCH
+      run: echo "BRANCH=$(echo $GITHUB_REF | cut -d'/' -f 3)" >> $GITHUB_ENV
+
+    - name: Set env AWS and LAMBDA_FUNCTION
+      run: |
+        if [[ $BRANCH == 'main' && $GITHUB_EVENT_NAME == 'push' ]]; then
+          echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID_PROD }}" >> "$GITHUB_ENV"
+          echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY_PROD }}" >> "$GITHUB_ENV"
+          echo "AWS_DEFAULT_REGION=${{ secrets.AWS_DEFAULT_REGION_PROD }}" >> "$GITHUB_ENV"
+        elif [[ $BRANCH == 'qa' && $GITHUB_EVENT_NAME == 'push' ]]; then
+          echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID_QA }}" >> "$GITHUB_ENV"
+          echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY_QA }}" >> "$GITHUB_ENV"
+          echo "AWS_DEFAULT_REGION=${{ secrets.AWS_DEFAULT_REGION_QA }}" >> "$GITHUB_ENV"
+        elif [[ $BRANCH == 'develop' && $GITHUB_EVENT_NAME == 'push' ]]; then
+          echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID_DEVELOP }}" >> "$GITHUB_ENV"
+          echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY_DEVELOP }}" >> "$GITHUB_ENV"
+          echo "AWS_DEFAULT_REGION=${{ secrets.AWS_DEFAULT_REGION_DEVELOP }}" >> "$GITHUB_ENV"
+        fi
+        export TMP_LAMBDA=$(echo ${{ env.REPO_NAME }} | sed -e 's/_/-/1' -e 's/_/-/1' -e 's/_//g')
+        echo "LAMBDA_FUNCTION=$TMP_LAMBDA-$BRANCH" >> "$GITHUB_ENV"
+        
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_DEFAULT_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+
+    - name: Build, tag, and push the image to Amazon ECR
+      id: build-image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+      run: |
+        # Build a docker container and push it to ECR 
+        docker build -t $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }} .
+        docker tag $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }} $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:${{ env.BRANCH }}-latest
+        echo "Pushing image to ECR..."
+        docker push $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}
+        docker push $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:${{ env.BRANCH }}-latest
+        echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+    - name: AWS Deploy
+      id: deploy
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+      run: |
+          aws lambda update-function-code --function-name ${{ env.LAMBDA_FUNCTION }} --image-uri ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ env.BRANCH }}-latest
