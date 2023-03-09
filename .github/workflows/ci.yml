@@ -22,6 +22,11 @@ jobs:
     - name: Secret Scan
       uses: max/secret-scan@master
 
+    - name: Test with Jest
+      run: |
+        npm install
+        npm run test      
+
     - name: Build an image from Dockerfile
       run: |
         docker build -t ${{ env.REPO_NAME }}:${{ env.REPO_SHA }} .
