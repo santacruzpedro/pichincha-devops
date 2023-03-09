@@ -24,6 +24,11 @@ jobs:
 
     - name: Build an image from Dockerfile
       run: |
+        npm install
+        npm run test      
+
+    - name: Build an image from Dockerfile
+      run: |
         docker build -t ${{ env.REPO_NAME }}:${{ env.REPO_SHA }} .
     - name: Run Trivy vulnerability scanner
       uses: aquasecurity/trivy-action@master
