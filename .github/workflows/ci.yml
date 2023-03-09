@@ -22,7 +22,7 @@ jobs:
     - name: Secret Scan
       uses: max/secret-scan@master
 
-    - name: Build an image from Dockerfile
+    - name: Test with Jest
       run: |
         npm install
         npm run test      
